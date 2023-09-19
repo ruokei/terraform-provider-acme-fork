@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/cenkalti/backoff"
 	"github.com/go-acme/lego/v4/certcrypto"
 	"github.com/go-acme/lego/v4/certificate"
 	"github.com/go-acme/lego/v4/lego"
@@ -94,17 +95,35 @@ func expandACMEClient(d *schema.ResourceData, meta interface{}, loadReg bool) (*
 		config.Certificate.KeyType = certcrypto.KeyType(v.(string))
 	}
 
-	client, err := lego.NewClient(config)
+	var client *lego.Client
+	newClient := func() error {
+		client, err = lego.NewClient(config)
+		if err != nil {
+			if isAbleToRetry(err.Error()) {
+				return err
+			} else {
+				return backoff.Permanent(err)
+			}
+		}
+
+		// Populate user's registration resource if needed
+		if loadReg {
+			user.Registration, err = client.Registration.ResolveAccountByKey()
+			if err != nil {
+				if isAbleToRetry(err.Error()) {
+					return err
+				} else {
+					return backoff.Permanent(err)
+				}
+			}
+		}
+		return nil
+	}
+	reconnectBackoff := backoff.NewExponentialBackOff()
+	reconnectBackoff.MaxElapsedTime = 30 * time.Minute
+	err = backoff.Retry(newClient, reconnectBackoff)
 	if err != nil {
 		return nil, nil, err
-	}
-
-	// Populate user's registration resource if needed
-	if loadReg {
-		user.Registration, err = client.Registration.ResolveAccountByKey()
-		if err != nil {
-			return nil, nil, err
-		}
 	}
 
 	return client, user, nil

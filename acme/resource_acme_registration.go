@@ -1,6 +1,9 @@
 package acme
 
 import (
+	"time"
+
+	"github.com/cenkalti/backoff"
 	"github.com/go-acme/lego/v4/acme"
 	"github.com/go-acme/lego/v4/registration"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
@@ -69,19 +72,31 @@ func resourceACMERegistrationCreate(d *schema.ResourceData, meta interface{}) er
 
 	var reg *registration.Resource
 	// If EAB was enabled, register using EAB.
-	if v, ok := d.GetOk("external_account_binding"); ok {
-		reg, err = client.Registration.RegisterWithExternalAccountBinding(registration.RegisterEABOptions{
-			TermsOfServiceAgreed: true,
-			Kid:                  v.([]interface{})[0].(map[string]interface{})["key_id"].(string),
-			HmacEncoded:          v.([]interface{})[0].(map[string]interface{})["hmac_base64"].(string),
-		})
-	} else {
-		// Normal registration.
-		reg, err = client.Registration.Register(registration.RegisterOptions{
-			TermsOfServiceAgreed: true,
-		})
+	registerAccount := func() error {
+		if v, ok := d.GetOk("external_account_binding"); ok {
+			reg, err = client.Registration.RegisterWithExternalAccountBinding(registration.RegisterEABOptions{
+				TermsOfServiceAgreed: true,
+				Kid:                  v.([]interface{})[0].(map[string]interface{})["key_id"].(string),
+				HmacEncoded:          v.([]interface{})[0].(map[string]interface{})["hmac_base64"].(string),
+			})
+		} else {
+			// Normal registration.
+			reg, err = client.Registration.Register(registration.RegisterOptions{
+				TermsOfServiceAgreed: true,
+			})
+		}
+		if err != nil {
+			if isAbleToRetry(err.Error()) {
+				return err
+			} else {
+				return backoff.Permanent(err)
+			}
+		}
+		return nil
 	}
-
+	reconnectBackoff := backoff.NewExponentialBackOff()
+	reconnectBackoff.MaxElapsedTime = 30 * time.Minute
+	err = backoff.Retry(registerAccount, reconnectBackoff)
 	if err != nil {
 		return err
 	}
@@ -112,7 +127,25 @@ func resourceACMERegistrationDelete(d *schema.ResourceData, meta interface{}) er
 		return err
 	}
 
-	return client.Registration.DeleteRegistration()
+	deleteRegistration := func() error {
+		err := client.Registration.DeleteRegistration()
+		if err != nil {
+			if isAbleToRetry(err.Error()) {
+				return err
+			} else {
+				return backoff.Permanent(err)
+			}
+		}
+		return nil
+	}
+	reconnectBackoff := backoff.NewExponentialBackOff()
+	reconnectBackoff.MaxElapsedTime = 30 * time.Minute
+	err = backoff.Retry(deleteRegistration, reconnectBackoff)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func regGone(err error) bool {

@@ -4,6 +4,7 @@ go 1.15
 
 require (
 	github.com/BurntSushi/toml v1.3.2
+	github.com/cenkalti/backoff v2.2.1+incompatible
 	github.com/davecgh/go-spew v1.1.1
 	github.com/go-acme/lego/v4 v4.14.0
 	github.com/gofrs/uuid v3.3.0+incompatible // indirect

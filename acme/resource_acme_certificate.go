@@ -7,6 +7,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/cenkalti/backoff"
 	"github.com/go-acme/lego/v4/certificate"
 	"github.com/go-acme/lego/v4/challenge/dns01"
 	"github.com/hashicorp/go-uuid"
@@ -280,11 +281,28 @@ func resourceACMECertificateCreate(d *schema.ResourceData, meta interface{}) err
 		if err != nil {
 			return err
 		}
-		cert, err = client.Certificate.ObtainForCSR(certificate.ObtainForCSRRequest{
-			CSR:            csr,
-			Bundle:         true,
-			PreferredChain: d.Get("preferred_chain").(string),
-		})
+
+		obtainCertCSR := func() error {
+			cert, err = client.Certificate.ObtainForCSR(certificate.ObtainForCSRRequest{
+				CSR:            csr,
+				Bundle:         true,
+				PreferredChain: d.Get("preferred_chain").(string),
+			})
+			if err != nil {
+				if isAbleToRetry(err.Error()) {
+					return err
+				} else {
+					return backoff.Permanent(err)
+				}
+			}
+			return nil
+		}
+		reconnectBackoff := backoff.NewExponentialBackOff()
+		reconnectBackoff.MaxElapsedTime = 30 * time.Minute
+		err = backoff.Retry(obtainCertCSR, reconnectBackoff)
+		if err != nil {
+			return err
+		}
 	} else {
 		cn := d.Get("common_name").(string)
 		domains := []string{cn}
@@ -296,12 +314,28 @@ func resourceACMECertificateCreate(d *schema.ResourceData, meta interface{}) err
 			}
 		}
 
-		cert, err = client.Certificate.Obtain(certificate.ObtainRequest{
-			Domains:        domains,
-			Bundle:         true,
-			MustStaple:     d.Get("must_staple").(bool),
-			PreferredChain: d.Get("preferred_chain").(string),
-		})
+		obtainCert := func() error {
+			cert, err = client.Certificate.Obtain(certificate.ObtainRequest{
+				Domains:        domains,
+				Bundle:         true,
+				MustStaple:     d.Get("must_staple").(bool),
+				PreferredChain: d.Get("preferred_chain").(string),
+			})
+			if err != nil {
+				if isAbleToRetry(err.Error()) {
+					return err
+				} else {
+					return backoff.Permanent(err)
+				}
+			}
+			return nil
+		}
+		reconnectBackoff := backoff.NewExponentialBackOff()
+		reconnectBackoff.MaxElapsedTime = 30 * time.Minute
+		err = backoff.Retry(obtainCert, reconnectBackoff)
+		if err != nil {
+			return err
+		}
 	}
 
 	if err != nil {
@@ -461,7 +495,21 @@ func resourceACMECertificateDelete(d *schema.ResourceData, meta interface{}) err
 	}
 
 	if remaining >= 0 {
-		if err := client.Certificate.Revoke(cert.Certificate); err != nil {
+		revokeCert := func() error {
+			err = client.Certificate.Revoke(cert.Certificate)
+			if err != nil {
+				if isAbleToRetry(err.Error()) {
+					return err
+				} else {
+					return backoff.Permanent(err)
+				}
+			}
+			return nil
+		}
+		reconnectBackoff := backoff.NewExponentialBackOff()
+		reconnectBackoff.MaxElapsedTime = 30 * time.Minute
+		err = backoff.Retry(revokeCert, reconnectBackoff)
+		if err != nil {
 			return err
 		}
 	}
