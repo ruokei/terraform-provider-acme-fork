@@ -30,3 +30,5 @@ website/vendor
 terraform-provider-acme
 
 .direnv/
+
+coverage.out

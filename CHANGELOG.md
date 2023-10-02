@@ -1,6 +1,24 @@
-## 2.17.2-pre (Unreleased)
+## 2.18.1-pre (Unreleased)
 
 Bumped version for dev.
+
+## 2.18.0 (September 21, 2023)
+
+FEATURES:
+
+* `resource/acme_certificate`: Added the `cert_timeout` option to control the
+  timeout of HTTP requests used to obtain the certificate after challenges are
+  complete.
+  [#349](https://github.com/vancluever/terraform-provider-acme/issues/349) 
+
+## 2.17.2 (September 20, 2023)
+
+LEGO UPDATE:
+
+[lego](https://github.com/go-acme/lego) has been updated to v4.14.2 See the
+lego [CHANGELOG.md](https://github.com/go-acme/lego/blob/v4.14.2/CHANGELOG.md)
+for more details on additions and changes to DNS providers, and other minor
+changes to the library.
 
 ## 2.17.1 (September 11, 2023)
 
