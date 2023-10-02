@@ -85,20 +85,12 @@ func expandACMEClient(d *schema.ResourceData, meta interface{}, loadReg bool) (*
 		return nil, nil, fmt.Errorf("error getting user data: %s", err.Error())
 	}
 
-	client, err := lego.NewClient(expandACMEClient_config(d, meta, user))
-	if err != nil {
-		return nil, nil, err
-	}
+	var client *lego.Client
 
-	// Populate user's registration resource if needed
-	if loadReg {
-		user.Registration, err = client.Registration.ResolveAccountByKey()
+	newClient := func() error {
+		client, err = lego.NewClient(expandACMEClient_config(d, meta, user))
 		if err != nil {
-			if isAbleToRetry(err.Error()) {
-				return err
-			} else {
-				return backoff.Permanent(err)
-			}
+			return err
 		}
 
 		// Populate user's registration resource if needed
